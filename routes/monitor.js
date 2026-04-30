@@ -6,6 +6,16 @@ const { authMiddleware, adminMiddleware } = require('../middleware/auth');
 
 // Define some malicious domains or simplistic rules for backend detection
 const BLACKLISTED_DOMAINS = ['malicious.com', 'phishing.net'];
+const SOCIAL_DOMAINS = ['facebook.com', 'twitter.com', 'x.com', 'instagram.com', 'tiktok.com', 'reddit.com'];
+
+// Helper to check if time is during work hours (Mon-Fri, 9am-5pm)
+function isWorkHours(date) {
+  const day = date.getDay(); // 0 = Sunday, 1 = Monday, ... 6 = Saturday
+  const hour = date.getHours();
+  const isWeekday = day >= 1 && day <= 5;
+  const isWorkingHour = hour >= 9 && hour < 17; // 9:00 AM to 4:59 PM
+  return isWeekday && isWorkingHour;
+}
 
 // POST /api/logs (Ingest logs from extension)
 router.post('/logs', authMiddleware, async (req, res) => {
@@ -19,35 +29,61 @@ router.post('/logs', authMiddleware, async (req, res) => {
     const formattedLogs = logs.map(log => {
       // Very basic backend flagging logic:
       let isFlagged = log.flagged || false;
+      let alertReason = null;
       
+      const logDate = log.timestamp ? new Date(log.timestamp) : new Date();
+
       try {
         if(log.url) {
             const urlObj = new URL(log.url);
-            if (BLACKLISTED_DOMAINS.some(domain => urlObj.hostname.includes(domain))) {
+            const hostname = urlObj.hostname.toLowerCase();
+
+            if (BLACKLISTED_DOMAINS.some(domain => hostname.includes(domain))) {
                 isFlagged = true;
+                alertReason = `Visited blacklisted site: ${hostname}`;
+            }
+            
+            // Check social media during work hours
+            if (SOCIAL_DOMAINS.some(domain => hostname.includes(domain))) {
+                if (isWorkHours(logDate)) {
+                    isFlagged = true;
+                    alertReason = `Social media accessed during work hours: ${hostname}`;
+                }
             }
         }
       } catch(e) {} // ignore invalid URLs for flagging mechanism
 
+      // Default reason if it was flagged by the extension but not the backend
+      if (isFlagged && !alertReason) {
+         alertReason = `Suspicious activity detected: ${log.actionType} on ${log.url}`;
+      }
+
       return {
         userId: req.user.id,
         url: log.url,
-        timestamp: log.timestamp || new Date(),
+        timestamp: logDate,
         tabId: log.tabId,
         actionType: log.actionType,
-        flagged: isFlagged
+        flagged: isFlagged,
+        _alertReason: alertReason // internal use for generating alerts
       };
     });
 
-    const insertedLogs = await Log.insertMany(formattedLogs);
+    // Remove the internal property before saving to DB
+    const logsToSave = formattedLogs.map(log => {
+      const { _alertReason, ...rest } = log;
+      return rest;
+    });
+
+    const insertedLogs = await Log.insertMany(logsToSave);
 
     // If any logs were flagged, create an alert
-    const flaggedLogs = insertedLogs.filter(log => log.flagged);
+    const flaggedLogs = formattedLogs.filter(log => log.flagged);
     if (flaggedLogs.length > 0) {
       const alerts = flaggedLogs.map(log => ({
          userId: req.user.id,
-         message: `Suspicious activity detected: ${log.actionType} on ${log.url}`,
-         timestamp: new Date()
+         message: log._alertReason,
+         timestamp: log.timestamp
       }));
       await Alert.insertMany(alerts);
     }
