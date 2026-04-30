@@ -81,4 +81,48 @@ router.get('/alerts', [authMiddleware, adminMiddleware], async (req, res) => {
   }
 });
 
+// DELETE /api/logs/:id (Admin only)
+router.delete('/logs/:id', [authMiddleware, adminMiddleware], async (req, res) => {
+  try {
+    await Log.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Log deleted successfully' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// DELETE /api/logs (Admin only) - Clear all logs
+router.delete('/logs', [authMiddleware, adminMiddleware], async (req, res) => {
+  try {
+    await Log.deleteMany({});
+    res.json({ message: 'All logs deleted successfully' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// DELETE /api/alerts/:id (Admin only)
+router.delete('/alerts/:id', [authMiddleware, adminMiddleware], async (req, res) => {
+  try {
+    await Alert.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Alert deleted successfully' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// DELETE /api/alerts (Admin only) - Clear all alerts
+router.delete('/alerts', [authMiddleware, adminMiddleware], async (req, res) => {
+  try {
+    await Alert.deleteMany({});
+    res.json({ message: 'All alerts deleted successfully' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 module.exports = router;
